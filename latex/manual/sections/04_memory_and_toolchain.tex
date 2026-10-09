@@ -1,0 +1,129 @@
+\section{Memory map, linker script, and GCC-to-hex flow}
+
+\subsection{Harvard memory map}
+The RTL models separate instruction and data memories. Software is linked to
+match the address split so code and writable data never overlap.
+
+\begin{center}
+\begin{tabularx}{\linewidth}{@{}l l l l X@{}}
+\toprule
+Region & Base address & Size & Access & Purpose \\
+\midrule
+IMEM & \texttt{0x0000\_0000} & 8 KiB & read/execute & \texttt{.text}, \texttt{.init}, \texttt{.rodata} \\
+DMEM & \texttt{0x2000\_0000} & 8 KiB & read/write & \texttt{.data}, \texttt{.sdata}, \texttt{.bss}, stack, signature window \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Tests use a fixed signature scratch region at \texttt{0x2000\_0100}: programs
+write deterministic 32-bit words there, and the testbench compares them against
+golden \texttt{.sig} files.
+
+\subsection{Why these addresses?}
+The documentation emphasizes a few motivations:
+\begin{itemize}[leftmargin=*]
+  \item The PC resets to zero, so placing IMEM at \texttt{0x0000\_0000} makes reset-to-first-instruction trivial.
+  \item The DMEM base at \texttt{0x2000\_0000} makes the Harvard split obvious from the address, and leaves room to grow toward a small SoC/MMIO map.
+  \item The linker fixes a deterministic stack top and a deterministic signature window for self-checking tests.
+\end{itemize}
+
+\subsection{A note on address decoding in the simple memories}
+The VHDL \texttt{imem\_dp} and \texttt{dmem} models intentionally do not
+implement full high-bit address decode; they mask down to the configured depth
+when indexing their arrays. The
+software \emph{still} uses full logical addresses (IMEM at \texttt{0x0000\_xxxx},
+DMEM at \texttt{0x2000\_xxxx}) so that the linker keeps sections separated.
+When integrating into a larger system, you can wrap proper decode logic around
+the memories without changing the compiler/linker view.
+
+\subsection{Data-side reads from the text region (\texttt{.rodata})}
+Because \texttt{.rodata} constants are placed in IMEM alongside \texttt{.text},
+loads that target addresses below \texttt{DMEM\_BASE\_ADDR}
+(\texttt{0x2000\_0000}) must read from IMEM, not DMEM. The top-level wrapper
+\texttt{top.vhd} instantiates a true dual-port instruction memory
+(\texttt{imem\_dp}): port A serves instruction fetch and port B serves data-side
+reads. A registered mux-select (\texttt{use\_imem\_w}) aligns the IMEM/DMEM
+read-data mux with the synchronous BRAM output timing.
+
+\subsection{Linker script (\texttt{link.ld})}
+The provided linker script enforces the memory map:
+\begin{itemize}[leftmargin=*]
+  \item \texttt{.text} and \texttt{.rodata} go to IMEM at \texttt{0x0000\_0000} (the PC resets to zero).
+  \item \texttt{.data} (and small-data \texttt{.sdata}) live in DMEM at runtime but are placed \emph{in the ELF load image} so the build can initialize DMEM before releasing reset.
+  \item \texttt{.bss} (and \texttt{.sbss}) are zero-initialized at runtime and do not need hex initialization data.
+  \item \texttt{\_\_stack\_top} is set to the top of DMEM so freestanding startup code can initialize \texttt{sp}.
+  \item \texttt{.note} sections are discarded, and the link stops with an error if \texttt{.text} does not start at \texttt{0x0000\_0000}. Some toolchains, for example the RISC-V GCC that comes with AMD Vitis, add a build-ID note section by default; placed in front of \texttt{.text}, it would move the code away from the address where the IMEM image starts.
+\end{itemize}
+
+\paragraph{Key snippet}
+\begin{lstlisting}[style=minrv]
+MEMORY {
+  IMEM (rx) : ORIGIN = 0x00000000, LENGTH = 8K
+  DMEM (rw) : ORIGIN = 0x20000000, LENGTH = 8K
+}
+\end{lstlisting}
+
+\paragraph{Spike variant (\texttt{link\_spike.ld})}
+The golden signatures are generated on the Spike ISA simulator
+(Section~\ref{sec:spike-golden}). Spike reserves the low addresses for its debug
+module and boot ROM, so \texttt{link\_spike.ld} places the code at
+\texttt{0x8000\_0000} and keeps DMEM, the stack, and the signature window at
+their MinRV32 addresses. \texttt{.data} is placed at its run address, so Spike's
+ELF loader preloads DMEM as \texttt{<name>.data.hex} does on the core.
+\texttt{build\_prog.sh} selects it through the \texttt{LINKER\_SCRIPT}
+environment variable. Section~\ref{sec:spike-addr} explains which signature
+values this affects.
+
+\subsection{GCC $\rightarrow$ ELF $\rightarrow$ hex images}
+The project's workflow emphasizes real software running on the RTL:
+\begin{enumerate}[leftmargin=*]
+  \item Compile/link a freestanding RV32I program with a bare-metal RISC-V GCC toolchain.
+  \item Extract \texttt{.text/.rodata} and \texttt{.data/.sdata} into raw binaries via \texttt{objcopy}.
+  \item Convert those binaries into newline-delimited 32-bit hex words (\texttt{XXXXXXXX} per line) for IMEM/DMEM initialization.
+\end{enumerate}
+
+The helper script \texttt{scripts/build\_prog.sh} automates this and produces:
+\texttt{<base>.elf}, \texttt{<base>.text.hex}, \texttt{<base>.data.hex} (and, for
+C sources, a compiler-generated assembly listing \texttt{<base>.S}).
+
+\paragraph{Practical guard: do the images fit?}
+The educational memories are small (default 8\,KiB IMEM and 8\,KiB DMEM). The build script
+prints a size summary for the generated \texttt{.text} and \texttt{.data} images
+and emits warnings if either exceeds the configured IMEM/DMEM capacity. If you
+change the VHDL memory sizes, set \texttt{IMEM\_BYTES} and \texttt{DMEM\_BYTES}
+in the environment so the warnings match your configuration.
+
+\subsection{Future work: one memory map for the core and Spike}
+\label{sec:future-memmap}
+The two linker scripts exist only because the core's IMEM sits at
+\texttt{0x0}, where Spike has its debug module. Spike does not accept memory
+there. Its other devices (boot ROM at \texttt{0x1000}, CLINT at
+\texttt{0x0200\_0000}, PLIC at \texttt{0x0C00\_0000}, UART at
+\texttt{0x1000\_0000}) do not overlap DMEM at \texttt{0x2000\_0000}. If IMEM
+and the reset PC move to \texttt{0x8000\_0000} (the RAM base also used by
+riscv-tests, riscv-arch-test, QEMU \texttt{virt}, and Sail), one linker script
+serves both. DMEM, the stack, and the signature window do not change. The
+current layout does not affect the golden signatures as long as tests follow
+the code-address rule (Section~\ref{sec:spike-addr}), so this change is not
+needed now. Required changes:
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Reset PC.} Add a reset-value generic to \texttt{pipe\_reg}
+  (default zero) and a \texttt{RESET\_PC} generic (default
+  \texttt{x"80000000"}) passed down to \texttt{pc\_reg} in
+  \texttt{fetch\_stage}.
+  \item \textbf{Load-path decode.} \texttt{top.vhd} and
+  \texttt{sim/top\_trace.vhd} send a load to IMEM port~B when
+  \texttt{addr < DMEM\_BASE\_ADDR}; test address bit~31 instead (set for
+  IMEM, clear for DMEM), which also needs less logic.
+  \item \textbf{Memories.} No change: \texttt{imem\_dp} and \texttt{dmem} index
+  only the low address bits.
+  \item \textbf{Linker script.} Set \texttt{IMEM ORIGIN = 0x80000000} in
+  \texttt{link.ld} and remove \texttt{AT>IMEM} (nothing copies \texttt{.data}
+  from its load address). Delete \texttt{link\_spike.ld} and the
+  \texttt{LINKER\_SCRIPT} override in \texttt{gen\_golden.sh}.
+  \item \textbf{Documentation.} Update the address tables, remove the
+  code-address rule, and update examples that show PC values.
+\end{enumerate}
+Raw code addresses would then give the same signature on both, and the existing
+\texttt{.sig} files stay valid. The PC would no longer reset to zero. The
+differences in Section~\ref{sec:spike-other} remain.

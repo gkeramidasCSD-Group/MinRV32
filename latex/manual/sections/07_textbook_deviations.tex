@@ -1,0 +1,173 @@
+\section{Deviations from Harris \& Harris}
+\label{sec:textbook-deviations}
+
+This implementation is based on the Harris \& Harris pipelined reference, with
+intentional changes to keep the RTL modular, more ISA-complete for labs, and
+synthesis-ready for FPGA BRAM inference.
+
+\subsection{Summary table}
+\begin{longtable}{@{}p{0.22\textwidth}p{0.72\textwidth}@{}}
+\toprule
+Area & Deviation (this repository) \\
+\midrule
+\endfirsthead
+\toprule
+Area & Deviation (this repository) \\
+\midrule
+\endhead
+ISA coverage &
+All six RV32I branch types are supported (including unsigned branches), and
+loads/stores cover byte/half/word widths with sign/zero extension. \\
+\addlinespace
+Control organization &
+Control is decoded in D and explicitly registered into E/M/W; signal names are
+stage-suffixed throughout (\texttt{ImmSrcD}, \texttt{ALUControlE},
+\texttt{MemWriteM}, \texttt{ResultSrcW}). \\
+\addlinespace
+Branching &
+A dedicated branch unit evaluates all branch types instead of relying only on
+an ALU \texttt{Zero} flag. \\
+\addlinespace
+Datapath flexibility &
+The ALU A input supports RS1/PC/zero selection (\texttt{SrcASelE}) for clean
+PC-relative and LUI-style flows. \\
+\addlinespace
+Structural datapath &
+\texttt{datapath\_pipe.vhd} uses a structural architecture that instantiates
+five per-stage wrapper entities (\texttt{fetch\_stage} through
+\texttt{writeback\_stage}), each containing named \texttt{pipe\_reg} instances
+and functional-unit instantiations. This gives Vivado's elaborated design view
+a navigable per-stage hierarchy; the textbook keeps the datapath as a single
+flat module. \\
+\addlinespace
+Hazards &
+A dedicated hazard unit implements forwarding, load-use stalls, and control-hazard flushing; M-stage forwarding is suppressed for loads because load data is only valid in W. \\
+\addlinespace
+FPGA-ready memories &
+Instruction and data memories use synchronous reads so the same RTL can infer
+Block RAM on FPGA tools (Vivado/Quartus). Output registers at the memories act
+as the relevant pipeline latches (\texttt{InstrD} and \texttt{ReadDataW}). The
+instruction memory also has an explicit enable so its registered output can be
+held stable across decode-stage stalls (textbook-style ``freeze InstrD''). \\
+\addlinespace
+Dual-port instruction memory &
+\texttt{imem\_dp.vhd} provides two synchronous read ports backed by a single
+memory array: port A serves instruction fetch while port B serves data-side
+loads targeting the text region (for \texttt{.rodata} constants). This avoids
+duplicating IMEM in synthesis. \\
+\addlinespace
+Flush around BRAM outputs &
+Because BRAM outputs cannot be overridden like a conventional F$\rightarrow$D register, a small \texttt{flush\_d\_hold} mechanism inserts a NOP on the following cycle to implement the same logical flush behavior. \\
+\addlinespace
+Byte-write inference &
+Stores use a byte-lane write pattern aligned with Xilinx BRAM inference templates (direct per-byte enable assignments). \\
+\addlinespace
+Explicit read enables &
+Data memory includes a \texttt{MemRead} enable so loads are explicitly qualified rather than being read-always. \\
+\addlinespace
+Register file timing &
+The register file writes on the rising edge (single-edge, BRAM-friendly) and
+uses a combinational bypass on each read port to preserve same-cycle
+W$\rightarrow$D read-after-write behavior. \\
+\addlinespace
+Harvard split exposure &
+Instruction and data ports are split at the top-level wrapper (\texttt{top.vhd}) while the internal core wiring remains close to textbook signal naming. \\
+\bottomrule
+\end{longtable}
+
+\subsection{Hazard-unit design notes (practical guards)}
+The documentation calls out a few guards that are easy to miss when moving from
+diagrams to working RTL:
+\begin{itemize}[leftmargin=*]
+  \item M-stage forwarding excludes loads (load data is only valid in W).
+  \item RAW stall checks are gated by \texttt{RegWrite} to avoid false dependencies on encodings that carry a non-zero \texttt{Rd} field but do not write a register.
+  \item A control-flow redirect (taken branch/jump) must override data stalls so the pipeline advances to the correct target and makes forward progress.
+\end{itemize}
+
+\subsection{True dual-port IMEM for \texttt{.rodata} loads}
+The core places \texttt{.rodata} in instruction memory alongside \texttt{.text},
+so some loads must read from IMEM (addresses below \texttt{DMEM\_BASE\_ADDR}) and
+others from DMEM. The top-level wrapper uses \texttt{imem\_dp} (true dual-port)
+so instruction fetch and a data-side read can happen simultaneously without
+duplicating BRAM resources.
+
+\paragraph{Why this matters on FPGA}
+Instantiating two separate single-port IMEMs (one for fetch, one for data-side
+reads) would infer two independent BRAM blocks in synthesis. A true dual-port
+memory keeps one shared array:
+
+\begin{center}
+\small
+\begin{tabular}{@{}p{0.58\textwidth}p{0.28\textwidth}@{}}
+\toprule
+Configuration & BRAM primitives (example) \\
+\midrule
+Two separate \texttt{imem} instances & 2$\times$ \\
+One \texttt{imem\_dp} dual-port instance & 1$\times$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+\normalsize
+
+\paragraph{Scaling (IMEM + DMEM)}
+At 32-bit word width on Xilinx 7-series devices, a \texttt{RAMB36E1} stores
+roughly 1024 words, so BRAM usage scales approximately as
+\texttt{WORDS / 1024} per memory.
+\begin{itemize}[leftmargin=*]
+  \item With the default sizing (\texttt{IMEM\_WORDS=2048},
+        \texttt{DMEM\_WORDS=2048}), \texttt{imem\_dp} is about 2 BRAM36 blocks
+        while \texttt{dmem} is about 2.
+  \item Duplicating instruction memory (two separate \texttt{imem} instances)
+        would double the IMEM cost (e.g., about 4 BRAM36 blocks for
+        \texttt{IMEM\_WORDS=2048}).
+\end{itemize}
+
+\subsection{Register file: rising-edge write with bypass}
+The Harris \& Harris reference writes the register file on the falling edge so
+a same-cycle Decode-stage read sees the freshly written value. This repository
+writes on the rising edge (single-edge clocking for BRAM/timing closure) and
+adds a simple combinational bypass per read port for the same-cycle
+W$\rightarrow$D case:
+
+\begin{lstlisting}[style=minrv,language=VHDL]
+rs1_data <= rd_data when (rd_write = '1' and rs1_addr = rd_addr and rs1_addr /= "00000")
+            else read_reg(regs, rs1_addr);
+\end{lstlisting}
+
+\subsection{Textbook vs BRAM-style timing at the stage boundary}
+\begin{center}
+\small
+\begin{tabular}{@{}p{0.44\textwidth}p{0.44\textwidth}@{}}
+\toprule
+Textbook (combinational) & This design (synchronous BRAM) \\
+\midrule
+\texttt{InstrF} available same cycle & BRAM delivers \texttt{InstrD} on the next rising edge \\
+Separate F$\rightarrow$D register for \texttt{InstrD} & IMEM output register \emph{is} the F$\rightarrow$D latch \\
+Separate M$\rightarrow$W register for \texttt{ReadDataW} & DMEM output register \emph{is} the M$\rightarrow$W latch \\
+Read-always memory & Read enables qualify and/or freeze outputs on stalls \\
+\bottomrule
+\end{tabular}
+\end{center}
+\normalsize
+
+\paragraph{Does this add a pipeline stage?}
+No. Instead of inserting a 6th stage just to ``wait for BRAM'', the synchronous
+memory output registers become the stage-boundary latches:
+\begin{itemize}[leftmargin=*]
+  \item IMEM: during cycle N, \texttt{PCF} is presented as the read address; on
+        the next rising edge (cycle N+1), the BRAM output register updates and
+        the instruction is available as \texttt{InstrD} for Decode.
+  \item DMEM (loads): during cycle N, the load address in \texttt{ALUResultM} is
+        presented; on the next rising edge (cycle N+1), the BRAM output register
+        updates and the load word is available as \texttt{ReadDataW} for
+        Writeback.
+\end{itemize}
+\noindent
+The stage names (F/D/E/M/W) describe when values are valid and consumed, not
+when a BRAM address is presented.
+
+\subsection{Why the synchronous-memory change matters}
+The textbook's combinational-read arrays are convenient for diagrams but do not
+map cleanly to FPGA Block RAM primitives. This project adopts BRAM-style,
+clocked reads to keep the educational pipeline \emph{real-hardware} friendly,
+while preserving the same stage timing and hazard behavior.
