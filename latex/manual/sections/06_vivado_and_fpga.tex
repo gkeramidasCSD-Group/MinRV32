@@ -1,0 +1,377 @@
+\section{Vivado/XSim and FPGA bring-up}
+
+Vivado is a common next step after GHDL validation: it can simulate with XSim,
+then synthesize/implement the same RTL on a Xilinx FPGA. XSim simulation plays
+the same role here as the GHDL flow used earlier in the project (compile RTL
+plus testbench, run a behavioural simulation, check the signature) -- the two
+flows are interchangeable verification steps that consume the same RTL and the
+same \texttt{tests/isa/<name>.sig} golden files. For pre-Vivado interactive
+exploration of the pipeline in a browser (schematic view plus drag-and-drop
+simulation, with real firmware loaded via \texttt{--mem-init}), see
+Section~\ref{sec:digitaljs} (DigitalJS interactive simulation). DigitalJS is a
+useful visual companion before committing to a Vivado project setup, but it is
+not signature-checked and does not replace XSim as a verification step.
+
+\paragraph{Automated project setup}
+The full Vivado bring-up flow -- project creation, source import, VHDL-2008
+file-type override, top selection, generics, and board XDC attachment -- is
+captured by a single Tcl driver, \texttt{scripts/vivado\_project.tcl}, and
+documented end-to-end in \texttt{docs/vivado\_instructions.md} (XSim
+simulation, synthesis/implementation, and on-board ILA validation). The
+sections below summarise what that script does and show the relevant Tcl
+snippets so the manual steps remain reproducible if you prefer GUI clicks
+over Tcl.
+
+\begin{lstlisting}[style=minrv]
+# Open project in the GUI, ready to launch sim/synth:
+vivado -source scripts/vivado_project.tcl -tclargs full_core basys3
+# Non-interactive (batch) creation:
+vivado -mode batch -source scripts/vivado_project.tcl -tclargs full_core zedboard
+\end{lstlisting}
+
+\subsection{Vivado simulation (XSim) checklist}
+The Tcl driver \texttt{scripts/vivado\_project.tcl} performs every step of
+this checklist; the manual list below is mainly useful for understanding what
+the script does (and what to tweak in the GUI if you ever set things up by
+hand).
+\begin{enumerate}[leftmargin=*]
+  \item Build the program hex images (example target: \texttt{tests/isa/full\_core.c}; expected signature: \texttt{tests/isa/full\_core.sig}):
+\begin{lstlisting}[style=minrv]
+./scripts/build_prog.sh tests/isa/full_core.c full_core
+\end{lstlisting}
+  \item Create the project and import sources via the Tcl driver:
+\begin{lstlisting}[style=minrv]
+vivado -source scripts/vivado_project.tcl -tclargs full_core basys3
+\end{lstlisting}
+  Internally this adds every \texttt{rtl/*.vhd} as a design source and every
+  \texttt{sim/*.vhd} as a simulation source (corresponding Tcl excerpts shown
+  below in Section~\ref{sec:vivado-sources}).
+  \item Force VHDL-2008 on the imported sources (Vivado defaults to VHDL-93). The driver does this automatically (see the snippet in Section~\ref{sec:vivado-2008}).
+  \item Set the simulation top and point the testbench generics at the generated hex files and the expected signature file (the driver does this too; see Section~\ref{sec:vivado-tb-generics}).
+  \item Run behavioral simulation (\texttt{launch\_simulation}) and look for \texttt{Note: TEST PASSED}. The driver sets the simulation run time to \texttt{all}, so the simulation runs until the testbench stops it (Vivado's default of 1000\,ns ends before \texttt{full\_core} passes at 28335\,ns).
+\end{enumerate}
+
+\subsection{Vivado source organization tip (exact lists)}
+\label{sec:vivado-sources}
+The documentation includes two exact source lists: one for synthesis (design
+top \texttt{rtl/fpga\_top.vhd} -- a thin wrapper around \texttt{rtl/top.vhd}
+that exposes only \texttt{clk} / \texttt{reset} on the pad ring), one for
+simulation (simulation top \texttt{sim/tb\_minrv32.vhd}, which drives
+\texttt{top} directly so the testbench still sees the observation ports).
+
+In practice you do not type these lists into the GUI; the Tcl driver imports
+them with two \texttt{glob} calls -- \texttt{rtl/*.vhd} into the design
+fileset, \texttt{sim/*.vhd} into \texttt{sim\_1} -- and then selects the
+correct top for each fileset:
+\begin{lstlisting}[style=minrv,language=tcl]
+# scripts/vivado_project.tcl (excerpt)
+set rtl_files [glob -nocomplain [file join $repo rtl *.vhd]]
+add_files -norecurse $rtl_files
+set sim_files [glob -nocomplain [file join $repo sim *.vhd]]
+add_files -fileset sim_1 -norecurse $sim_files
+
+set_property top fpga_top   [current_fileset]
+set_property top tb_minrv32 [get_filesets sim_1]
+\end{lstlisting}
+The exact file lists below are useful as a manual reference: anything pulled
+in by the \texttt{glob} above appears here.
+
+\paragraph{Synthesis sources}
+\begin{lstlisting}[style=minrv]
+rtl/alu.vhd
+rtl/branch_unit.vhd
+rtl/controller_pipe.vhd
+rtl/core_pkg.vhd
+rtl/mem_init_pkg.vhd
+rtl/decode_stage.vhd
+rtl/dmem.vhd
+rtl/execute_stage.vhd
+rtl/extend.vhd
+rtl/fetch_stage.vhd
+rtl/hazard_unit.vhd
+rtl/imem_dp.vhd
+rtl/load_extend_unit.vhd
+rtl/maindec.vhd
+rtl/aludec.vhd
+rtl/mem_access_unit.vhd
+rtl/memory_stage.vhd
+rtl/mux2.vhd
+rtl/mux3.vhd
+rtl/pipe_reg.vhd
+rtl/regfile.vhd
+rtl/riscvpipe.vhd
+rtl/datapath_pipe.vhd
+rtl/top.vhd
+rtl/fpga_top.vhd
+rtl/writeback_stage.vhd
+\end{lstlisting}
+
+\paragraph{Note}
+\texttt{top.vhd} instantiates \texttt{imem\_dp} (dual-port BRAM) for instruction
+memory and for data-side reads from the text region (\texttt{.rodata} loads).
+Port B can be left disabled if you want a logically single-port instruction
+memory. \texttt{fpga\_top.vhd} is the Vivado synthesis top: it instantiates
+\texttt{top} and XOR-reduces the five observation output ports into a
+single 1-bit \texttt{led} so the FPGA pad ring only sees \texttt{clk} /
+\texttt{reset} / \texttt{led} (3 IOs instead of 72). The XOR fold is
+deliberate: it forces every observation bit to reach a pad, so Vivado
+cannot prune the datapath as dead code during backwards optimisation. The
+fold is XORed with the MSB of a free-running 24-bit counter (about 4.8\,Hz at
+80\,MHz), so the LED blinks visibly whenever the core clock is running.
+
+\paragraph{Core clock}
+The core does not run at the board clock. \texttt{fpga\_top.vhd} contains an
+MMCM (Mixed-Mode Clock Manager, the clock generator block inside 7-series
+FPGAs) that makes the core clock:
+core clock $=$ board clock $\times$ \texttt{MMCM\_MULT} $/$
+(\texttt{MMCM\_DIVCLK} $\times$ \texttt{MMCM\_OUT\_DIV}).
+The Tcl driver computes these generics from the core clock you ask for with
+\texttt{--clk-mhz} (default 80\,MHz on Basys3 and ZedBoard) and picks the highest
+frequency that is not above it. The board XDC constrains only the 100\,MHz
+board clock; Vivado derives the core clock constraint from it, so the timing
+report checks the real core clock. The core is held in reset until the MMCM
+output is stable. At 80\,MHz the worst setup slack is only about 0.17\,ns on
+both boards (Section~\ref{sec:vivado-results}); if a change makes it negative,
+use 75\,MHz, as below.
+\begin{lstlisting}[style=minrv]
+vivado -mode batch -source scripts/vivado_project.tcl \
+       -tclargs full_core basys3 --clk-mhz 75
+\end{lstlisting}
+
+\paragraph{Simulation sources (with optional trace wrappers)}
+\begin{lstlisting}[style=minrv]
+rtl/alu.vhd
+rtl/branch_unit.vhd
+rtl/controller_pipe.vhd
+rtl/core_pkg.vhd
+rtl/mem_init_pkg.vhd
+rtl/decode_stage.vhd
+rtl/dmem.vhd
+rtl/execute_stage.vhd
+rtl/extend.vhd
+rtl/fetch_stage.vhd
+rtl/hazard_unit.vhd
+rtl/imem_dp.vhd
+rtl/load_extend_unit.vhd
+rtl/maindec.vhd
+rtl/aludec.vhd
+rtl/mem_access_unit.vhd
+rtl/memory_stage.vhd
+rtl/mux2.vhd
+rtl/mux3.vhd
+rtl/pipe_reg.vhd
+rtl/regfile.vhd
+rtl/riscvpipe.vhd
+rtl/datapath_pipe.vhd
+sim/riscvpipe_trace.vhd
+rtl/top.vhd
+sim/top_trace.vhd
+sim/tb_minrv32.vhd
+rtl/writeback_stage.vhd
+\end{lstlisting}
+
+\subsection{VHDL-2008 enable (Tcl snippet)}
+\label{sec:vivado-2008}
+\begin{lstlisting}[style=minrv,language=tcl]
+set repo <repo_root>
+foreach f [glob -nocomplain $repo/rtl/*.vhd] {
+  set_property file_type {VHDL 2008} [get_files $f]
+}
+foreach f [glob -nocomplain $repo/sim/*.vhd] {
+  set_property file_type {VHDL 2008} [get_files $f]
+}
+\end{lstlisting}
+
+\subsection{Pointing the testbench at hex/signature files}
+\label{sec:vivado-tb-generics}
+Vivado can set testbench generics on the \texttt{sim\_1} fileset. The documented
+example configures IMEM/DMEM init files plus an expected signature file:
+\begin{lstlisting}[style=minrv,language=tcl]
+set_property top tb_minrv32 [get_filesets sim_1]
+set repo      <repo_root>
+set build_dir [file join $repo build]
+set_property generic \
+  "IMEM_INIT_FILE=\"$build_dir/full_core.text.hex\" \
+   DMEM_INIT_FILE=\"$build_dir/full_core.data.hex\" \
+   EXPECTED_FILE=\"$repo/tests/isa/full_core.sig\" \
+   SIGNATURE_WORDS=10 \
+   MAX_CYCLES=5000 \
+   HALT_ON_PASS=true" \
+  [get_filesets sim_1]
+\end{lstlisting}
+
+\noindent
+\texttt{SIGNATURE\_WORDS} must match the number of 32-bit words in the
+\texttt{.sig} file (one per line). For example, \texttt{full\_core.sig} uses 10
+words. The Tcl driver \texttt{scripts/vivado\_project.tcl} computes this
+automatically by counting non-blank lines in the \texttt{.sig} file.
+
+\subsection{Optional: per-instruction trace wrappers}
+For a more didactic simulation transcript, the project includes simulation-only
+wrappers that print decoded assembly and key control choices. In Vivado, add
+\texttt{sim/top\_trace.vhd} and \texttt{sim/riscvpipe\_trace.vhd} to simulation
+sources; for synthesis, omit them so the synthesizable RTL remains unchanged.
+
+When the hazard unit takes action (stall/flush/forward), the trace also prints
+a \texttt{HAZARD:} line with the stall/flush decisions and the forwarding
+selects:
+\begin{lstlisting}[style=minrv]
+HAZARD: StallF=stall StallD=stall FlushD=keep FlushE=flush FwdA=rf FwdB=rf
+\end{lstlisting}
+\noindent
+\texttt{FwdA/FwdB} select \texttt{rf}, \texttt{M}, or \texttt{W}.
+
+\subsection{Expected warnings}
+Because the simple memories mask addresses down to their depth, Vivado may warn
+that higher address bits are unused. Similar ``unused'' warnings can appear for
+helpers that only consume low address bits for byte strobes and alignment. The
+documentation calls these warnings expected for this style of educational memory model.
+
+\subsection{BRAM initialization: simulation vs synthesis}
+The memory models share a single init mechanism: an impure
+\texttt{init\_mem()} function in \texttt{rtl/mem\_init\_pkg.vhd} reads a
+plain-text hex file at \emph{elaboration time} and returns a pre-populated
+\texttt{word\_mem\_t} array.
+\begin{itemize}[leftmargin=*]
+  \item Simulation (GHDL/XSim): the function runs in the simulator's elaboration phase and pre-loads the array before time 0.
+  \item Synthesis (Vivado): the same code path executes in Vivado's elaborator -- TEXTIO is supported at elaboration -- and the resulting array is baked into the inferred BRAM's \texttt{INIT\_xx} parameters in the bitstream. No tool-specific \texttt{INIT\_FILE} attribute is needed.
+\end{itemize}
+Provide absolute paths to the hex files via the top-level
+\texttt{IMEM\_INIT\_FILE} / \texttt{DMEM\_INIT\_FILE} generics (relative paths
+fail because the elaborator runs from Vivado's project working directory, not
+the repo root).
+
+\subsection{Synthesis top generics (init files and sizes)}
+The synthesis top is \texttt{fpga\_top}. Its generics are
+\texttt{IMEM\_WORDS}, \texttt{DMEM\_WORDS}, \texttt{IMEM\_INIT\_FILE},
+\texttt{DMEM\_INIT\_FILE}, \texttt{FORWARDING\_ENABLE}, and the clock
+settings \texttt{CLK\_IN\_PERIOD\_PS}, \texttt{MMCM\_MULT},
+\texttt{MMCM\_DIVCLK}, and \texttt{MMCM\_OUT\_DIV} (the
+\texttt{DMEM\_BASE\_ADDR} split is fixed inside \texttt{rtl/top.vhd} at
+\texttt{0x2000\_0000} and is not exposed on the synthesis top). The Tcl
+driver sets all of them except \texttt{FORWARDING\_ENABLE} on the design
+fileset; for an 80\,MHz core clock (the Basys3 default):
+\begin{lstlisting}[style=minrv,language=tcl]
+set repo     <repo_root>
+set build    [file join $repo build]
+set_property generic \
+  "IMEM_WORDS=2048 DMEM_WORDS=2048 \
+   IMEM_INIT_FILE=$build/full_core.text.hex \
+   DMEM_INIT_FILE=$build/full_core.data.hex \
+   CLK_IN_PERIOD_PS=10000 \
+   MMCM_MULT=12 MMCM_DIVCLK=1 MMCM_OUT_DIV=15" \
+  [current_fileset]
+\end{lstlisting}
+
+\subsection{On-chip debugging (ILA)}
+For FPGA bring-up, Vivado's Integrated Logic Analyzer (ILA) provides a
+transaction-level view of execution by probing internal nets. The
+\texttt{MARK\_DEBUG=true} attribute is already applied in \texttt{rtl/top.vhd}
+to the nets of interest (\texttt{pc}, \texttt{instr}, \texttt{dmem\_addr\_i},
+\texttt{dmem\_wdata\_i}, \texttt{dmem\_wstrb\_i}, \texttt{dmem\_write\_en\_i},
+\texttt{dmem\_read\_en\_i}), so they appear directly in the ``Set Up Debug''
+wizard without further RTL edits.
+
+\subsection{Validate a program via the signature window (ILA capture)}
+\label{sec:vivado-ila-signature}
+The same signature idea used in simulation is used on FPGA: rather than reading
+BRAM over JTAG, trigger an ILA on stores into the signature window and read the
+captured store words back from the ILA buffer.
+\begin{itemize}[leftmargin=*]
+  \item DMEM base: \texttt{0x2000\_0000}
+  \item Signature base: \texttt{0x2000\_0100} (DMEM offset \texttt{0x100})
+  \item Trigger: \texttt{dmem\_write\_en\_i == 1} AND \texttt{dmem\_addr\_i == 32'h2000\_01XX}
+  \item Capture: \texttt{dmem\_addr\_i} and \texttt{dmem\_wdata\_i}; depth 4096
+        samples is ample (\texttt{full\_core.sig} has 10 words).
+\end{itemize}
+
+Hardware Manager Tcl to run the capture and dump the samples to CSV:
+\begin{lstlisting}[style=minrv,language=tcl]
+set ila [lindex [get_hw_ilas] 0]
+run_hw_ila    $ila
+wait_on_hw_ila $ila
+write_hw_ila_data -csv_file signature_capture.csv \
+                  [upload_hw_ila_data $ila]
+\end{lstlisting}
+
+Sort the captured rows by \texttt{dmem\_addr\_i} and compare the
+\texttt{dmem\_wdata\_i} column against \texttt{tests/isa/<test>.sig} (one
+32-bit word per line).
+
+\subsection{Implementation results}
+\label{sec:vivado-results}
+Table~\ref{tab:vivado-results} lists the post-implementation results on
+ZedBoard (\texttt{xc7z020clg484-1}) at the default 80\,MHz core clock, measured
+with Vivado 2024.2, the default implementation strategy, and the
+\texttt{full\_core} program. The ILA column is for an ILA on all 134
+\texttt{MARK\_DEBUG} bits, with a depth of 4096 samples and capture control
+enabled. Other RTL revisions, Vivado versions, devices, or ILA settings give
+somewhat different numbers.
+
+\paragraph{Published results}
+Papers about MinRV32 report the results of the version that existed when they
+were written. The FPGA results of the BCI conference paper were obtained with
+an earlier version in which the core was clocked directly by the 100\,MHz board
+oscillator while the timing constraint specified 80\,MHz, so its timing results
+(WNS $+0.112$\,ns without and $+0.269$\,ns with the ILA) were not checked at the
+clock that the core actually received. The current version fixes this with the
+MMCM. Its resource usage is almost the same (1845 against 1842 LUTs without the
+ILA), its estimated power includes the MMCM (0.261 against 0.162\,W without the
+ILA), and its timing is checked at the real core clock. The
+\texttt{docs/vivado\_instructions.md} file lists the differences in detail.
+
+\begin{table}[htbp]
+\centering
+\caption{Post-implementation results on ZedBoard at 80\,MHz.}
+\label{tab:vivado-results}
+\begin{tabularx}{\linewidth}{@{}X r r r@{}}
+\toprule
+Resource / result & Available & Without ILA & With ILA \\
+\midrule
+Slice LUTs                  & 53200  & 1845 (3.47\%) & 3778 (7.10\%) \\
+Slice registers (FF)        & 106400 & 1523 (1.43\%) & 4800 (4.51\%) \\
+Occupied slices             & 13300  & 875 (6.58\%)  & 2053 (15.44\%) \\
+F7 muxes                    & 26600  & 261           & 280 \\
+Block RAM tiles (RAMB36)    & 140    & 4 (2.86\%)    & 19 (13.57\%) \\
+DSP slices                  & 220    & 0             & 0 \\
+Bonded IOB                  & 200    & 3             & 3 \\
+Global clock buffers (BUFG) & 32     & 2             & 3 \\
+MMCM                        & 4      & 1             & 1 \\
+\midrule
+WNS / WHS (ns)              & ---    & $+0.174$ / $+0.156$ & $+0.240$ / $+0.065$ \\
+Total on-chip power (est.)  & ---    & 0.261\,W      & 0.289\,W \\
+\quad Dynamic               & ---    & 0.152\,W      & 0.179\,W \\
+\quad\quad of which MMCM    & ---    & 0.116\,W      & 0.116\,W \\
+\quad Device static         & ---    & 0.108\,W      & 0.110\,W \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The two BUFGs without the ILA drive the core clock and the MMCM feedback; the
+ILA adds a third one for the JTAG clock of its debug hub, and it samples on the
+core clock. The power is the vectorless estimate of Vivado; most of the dynamic
+power is the MMCM, a fixed cost of the clock generation, and the processor
+itself accounts for about 0.036\,W.
+
+\paragraph{Critical path}
+The slowest paths start at the output of the data-memory block RAM
+(2.45\,ns after the clock edge) and resolve a branch that depends on the loaded
+value: the IMEM/DMEM read-data mux, the load extension and the Writeback result
+mux, the forwarding mux of the Execute stage, and the branch comparison produce
+\texttt{PCSrcE}. \texttt{PCSrcE} then drives the next-PC adder and the PC
+register, and \texttt{FlushD}/\texttt{FlushE}, which reach the synchronous reset
+inputs of the Fetch/Decode and Decode/Execute registers. Without the ILA the
+slowest endpoint is such a reset input (11 logic levels), and the PC register is
+only 0.027\,ns behind it (19 logic levels, 9 of them \texttt{CARRY4}); with the
+ILA, the PC register is the slowest endpoint. More than half of the delay is
+routing, so the slack depends on placement.
+
+\paragraph{MMCM or PLL}
+Each 7-series clock tile has one MMCM and one PLL, and either can make 80\,MHz
+from 100\,MHz. With a PLL at the same 1200\,MHz internal oscillator
+($\times 12 / 15$), the estimated power was slightly higher (0.121\,W against
+0.116\,W) and the design missed timing by 0.178\,ns, only because the core logic
+was placed differently. With a PLL at 800\,MHz ($\times 8 / 10$), the total power
+fell to 0.242\,W, but the clock uncertainty grew from 0.069 to 0.082\,ns and the
+WNS fell to $+0.050$\,ns. The power depends on the oscillator frequency and not
+on the type of block, so the MMCM is kept.

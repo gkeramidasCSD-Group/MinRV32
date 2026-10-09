@@ -1,0 +1,9 @@
+11223344
+00001234
+fffffedc
+0000fedc
+ffffff82
+000000ff
+deadbeef
+00001234
+ffffff80

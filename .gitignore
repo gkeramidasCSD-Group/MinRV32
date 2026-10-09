@@ -1,0 +1,11 @@
+# Build artifacts produced by helper scripts
+/build/
+/scripts/__pycache__/
+/tb_*
+/work-obj*.cf
+/.Xil/
+
+# Temporary files & folders
+*.txt
+*.log
+/vivado*

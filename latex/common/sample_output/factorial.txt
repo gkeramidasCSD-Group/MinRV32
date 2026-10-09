@@ -1,0 +1,20 @@
+$ ./scripts/run_test.sh factorial
+[GCC] /home/pmousoul/repos/MinRV32-SC/tests/isa/factorial.c -> /home/pmousoul/repos/MinRV32-SC/build/factorial.S
+[GCC] /home/pmousoul/repos/MinRV32-SC/tests/isa/factorial.c -> /home/pmousoul/repos/MinRV32-SC/build/factorial.elf
+[OBJCOPY] extracting .text/.rodata
+[OBJCOPY] extracting .data/.sdata
+[HEX] /home/pmousoul/repos/MinRV32-SC/build/factorial.text.bin -> /home/pmousoul/repos/MinRV32-SC/build/factorial.text.hex
+[HEX] /home/pmousoul/repos/MinRV32-SC/build/factorial.data.bin -> /home/pmousoul/repos/MinRV32-SC/build/factorial.data.hex
+
+Artifacts written to /home/pmousoul/repos/MinRV32-SC/build:
+  - factorial.elf       : full ELF
+  - factorial.text.hex  : load into instruction memory (text/rodata)
+  - factorial.data.hex  : load into data memory (.data, zero-extend for .bss)
+  - factorial.S          : GCC-generated assembly from the C source
+
+Sizes:
+  - text/rodata: 132 bytes (33 words)  [IMEM capacity: 8192 bytes]
+  - data/sdata : 0 bytes (0 words)  [DMEM capacity: 8192 bytes]
+
+/home/pmousoul/repos/MinRV32-SC/sim/tb_minrv32.vhd:713:9:@3425ns:(report note): TEST PASSED
+simulation stopped @3425ns with status 0
