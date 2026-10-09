@@ -1,0 +1,26 @@
+\section{What this project is for}
+
+\ProjectName\ is a teaching-oriented implementation of an RV32I pipelined CPU.
+Its goal is to help you learn how a modern in-order pipeline is structured and
+validated in an HDL, and how the resulting RTL maps onto FPGA-friendly building
+blocks (especially synchronous Block RAMs).
+
+\subsection{What you learn by studying or modifying this core}
+\begin{itemize}[leftmargin=*]
+  \item How a five-stage pipeline is partitioned (Fetch/Decode/Execute/Memory/Writeback) and how stage registers define timing.
+  \item How a hazard unit combines forwarding, stalling, and flushing to preserve correctness.
+  \item How a Harvard memory map and a custom linker script make bare-metal C programs \emph{actually runnable} on the hardware model.
+  \item How to validate ISA behavior with directed tests and self-checking signatures.
+  \item HDL coding practice: writing synthesizable RTL (design for synthesis) and writing testbenches for design verification.
+  \item Using open-source tools to simulate, verify, and visualize HDL designs (e.g.\ GHDL, GTKWave, DigitalJS).
+  \item How to simulate and debug in Xilinx Vivado (XSim), and how to instrument an FPGA build with ILA.
+\end{itemize}
+
+\subsection{Textbook lineage}
+The RTL follows the structure and naming conventions of the Harris \& Harris
+pipelined reference design (stage-suffixed signals such as \texttt{PCF},
+\texttt{InstrD}, \texttt{ALUControlE}, \texttt{MemWriteM}, \texttt{ResultSrcW}).
+Section~\ref{sec:textbook-deviations} summarizes the intentional deviations made
+to support a synthesis-ready, BRAM-friendly implementation and a slightly richer
+RV32I subset.
+

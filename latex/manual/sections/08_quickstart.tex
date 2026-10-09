@@ -1,0 +1,65 @@
+\section{Quickstart (common flows)}
+
+\subsection{Run a single test (GHDL)}
+\begin{lstlisting}[style=minrv]
+./scripts/run_test.sh full_core
+\end{lstlisting}
+
+\subsection{Run a single test with trace and waves}
+\begin{lstlisting}[style=minrv]
+./scripts/run_test.sh --trace full_core
+./scripts/run_test.sh --fst full_core
+./scripts/view_wave.sh build/waves/full_core.fst
+\end{lstlisting}
+
+\subsection{Run all tests (regression)}
+\begin{lstlisting}[style=minrv]
+./scripts/run_tests.sh
+./scripts/run_tests.sh --trace
+\end{lstlisting}
+
+\subsection{Generate or check golden signatures (Spike)}
+\begin{lstlisting}[style=minrv]
+./scripts/gen_golden.sh --check factorial          # Spike vs tests/isa/factorial.sig
+./scripts/gen_golden.sh --words 4 --write my_test  # create tests/isa/my_test.sig
+./scripts/check_goldens.sh                         # check every .sig file
+\end{lstlisting}
+To run or step through a program on Spike yourself, see
+Sections~\ref{sec:spike-manual} and~\ref{sec:spike-debug}.
+
+\subsection{Run a unit testbench (module bring-up)}
+\begin{lstlisting}[style=minrv]
+./scripts/run_unit_tb.sh regfile
+./scripts/run_unit_tb.sh --fst alu
+\end{lstlisting}
+
+\subsection{Build hex images for Vivado/BRAM init}
+\begin{lstlisting}[style=minrv]
+./scripts/build_prog.sh tests/isa/full_core.c full_core
+ls -1 build/full_core.*   # .text.hex, .data.hex, .elf, ...
+cat tests/isa/full_core.sig  # expected signature words (one per line)
+\end{lstlisting}
+
+\subsection{Interactive schematic + simulation (DigitalJS, simple module)}
+\begin{lstlisting}[style=minrv]
+./scripts/gen_schematic.sh --digitaljs alu
+# upload build/schematics/alu.digitaljs.json to https://digitaljs.tilk.eu/
+\end{lstlisting}
+
+\subsection{Interactive full-pipeline simulation with firmware loaded}
+\begin{lstlisting}[style=minrv]
+./scripts/build_prog.sh tests/isa/full_core.c full_core
+./scripts/gen_schematic.sh --digitaljs \
+    --mem-init imem_dp=build/full_core.text.hex \
+    --mem-init dmem=build/full_core.data.hex \
+    top
+# upload build/schematics/top.digitaljs.json to https://digitaljs.tilk.eu/
+\end{lstlisting}
+
+\subsection{Typical artifacts}
+\begin{itemize}[leftmargin=*]
+  \item \texttt{build/<name>.text.hex}: words for IMEM initialization.
+  \item \texttt{build/<name>.data.hex}: words for DMEM initialization.
+  \item \texttt{tests/isa/<name>.sig}: expected signature window (tests).
+  \item \texttt{build/<name>.elf}: full ELF for symbols/debug.
+\end{itemize}
