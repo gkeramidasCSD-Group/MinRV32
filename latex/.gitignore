@@ -1,0 +1,6 @@
+# Build staging directory
+build/
+
+# Sample-output snippets are real documentation sources; keep them despite the
+# repo-root `*.txt` ignore rule.
+!common/sample_output/*.txt

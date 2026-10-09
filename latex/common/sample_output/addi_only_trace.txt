@@ -1,0 +1,192 @@
+$ ./scripts/run_test.sh --trace addi_only
+[GCC] /home/pmousoul/repos/MinRV32-SC/tests/isa/addi_only.S -> /home/pmousoul/repos/MinRV32-SC/build/addi_only.elf
+[OBJCOPY] extracting .text/.rodata
+[OBJCOPY] extracting .data/.sdata
+[HEX] /home/pmousoul/repos/MinRV32-SC/build/addi_only.text.bin -> /home/pmousoul/repos/MinRV32-SC/build/addi_only.text.hex
+[HEX] /home/pmousoul/repos/MinRV32-SC/build/addi_only.data.bin -> /home/pmousoul/repos/MinRV32-SC/build/addi_only.data.hex
+
+Artifacts written to /home/pmousoul/repos/MinRV32-SC/build:
+  - addi_only.elf       : full ELF
+  - addi_only.text.hex  : load into instruction memory (text/rodata)
+  - addi_only.data.hex  : load into data memory (.data, zero-extend for .bss)
+
+Sizes:
+  - text/rodata: 80 bytes (20 words)  [IMEM capacity: 8192 bytes]
+  - data/sdata : 0 bytes (0 words)  [DMEM capacity: 8192 bytes]
+
+
+../../src/ieee2008/numeric_std-body.vhdl:3036:7:@55ns:(assertion warning): NUMERIC_STD.TO_INTEGER: metavalue detected, returning 0
+../../src/ieee2008/numeric_std-body.vhdl:3036:7:@55ns:(assertion warning): NUMERIC_STD.TO_INTEGER: metavalue detected, returning 0
+../../src/ieee2008/numeric_std-body.vhdl:3036:7:@55ns:(assertion warning): NUMERIC_STD.TO_INTEGER: metavalue detected, returning 0
+../../src/ieee2008/numeric_std-body.vhdl:3036:7:@55ns:(assertion warning): NUMERIC_STD.TO_INTEGER: metavalue detected, returning 0
+ASM=unknown
+FETCH: PC=0x00000000 INSTR=0xXXXXXXXX
+DECODE [addi x0, x0, 0]: ImmSrc=I
+EXEC [---]: SrcA=rs1 ALUSrc=rs2 ALUControl=add
+MEM [---]:
+WB [---]: ResultSrc=alu
+
+ASM=lui x5, 0x20000000
+FETCH: PC=0x00000004 INSTR=0x200002B7
+DECODE [lui x5, 0x20000000]: ImmSrc=U
+EXEC [addi x0, x0, 0]: SrcA=rs1 ALUSrc=imm ALUControl=add
+MEM [---]:
+WB [---]: ResultSrc=alu
+
+ASM=addi x5, x5, 256
+FETCH: PC=0x00000008 INSTR=0x10028293
+DECODE [addi x5, x5, 256]: ImmSrc=I
+EXEC [lui x5, 0x20000000]: SrcA=zero ALUSrc=imm ALUControl=add
+MEM [addi x0, x0, 0]:
+WB [---]: ResultSrc=alu
+
+ASM=addi x6, x0, 5
+FETCH: PC=0x0000000C INSTR=0x00500313
+DECODE [addi x6, x0, 5]: ImmSrc=I
+EXEC [addi x5, x5, 256]: SrcA=rs1 ALUSrc=imm ALUControl=add
+MEM [lui x5, 0x20000000]:
+WB [addi x0, x0, 0]: ResultSrc=alu RegWrite=yes
+HAZARD [addi x5, x5, 256]: StallF=run StallD=run FlushD=keep FlushE=keep FwdA=M FwdB=rf
+
+ASM=addi x7, x6, -3
+FETCH: PC=0x00000010 INSTR=0xFFD30393
+DECODE [addi x7, x6, -3]: ImmSrc=I
+EXEC [addi x6, x0, 5]: SrcA=rs1 ALUSrc=imm ALUControl=add
+MEM [addi x5, x5, 256]:
+WB [lui x5, 0x20000000]: ResultSrc=alu RegWrite=yes
+HAZARD [addi x6, x0, 5]: StallF=run StallD=run FlushD=keep FlushE=keep FwdA=rf FwdB=M
+
+ASM=sw x7, 0(x5)
+FETCH: PC=0x00000014 INSTR=0x0072A023
+DECODE [sw x7, 0(x5)]: ImmSrc=S
+EXEC [addi x7, x6, -3]: SrcA=rs1 ALUSrc=imm ALUControl=add
+MEM [addi x6, x0, 5]:
+WB [addi x5, x5, 256]: ResultSrc=alu RegWrite=yes
+HAZARD [addi x7, x6, -3]: StallF=run StallD=run FlushD=keep FlushE=keep FwdA=M FwdB=rf
+
+ASM=addi x6, x0, -5
+FETCH: PC=0x00000018 INSTR=0xFFB00313
+DECODE [addi x6, x0, -5]: ImmSrc=I
+EXEC [sw x7, 0(x5)]: SrcA=rs1 ALUSrc=imm ALUControl=add
+MEM [addi x7, x6, -3]:
+WB [addi x6, x0, 5]: ResultSrc=alu RegWrite=yes
+HAZARD [sw x7, 0(x5)]: StallF=run StallD=run FlushD=keep FlushE=keep FwdA=rf FwdB=M
+
+ASM=addi x7, x6, 6
+FETCH: PC=0x0000001C INSTR=0x00630393
+DECODE [addi x7, x6, 6]: ImmSrc=I
+EXEC [addi x6, x0, -5]: SrcA=rs1 ALUSrc=imm ALUControl=add
+MEM [sw x7, 0(x5)]: MemWrite=yes MemSize=word
+WB [addi x7, x6, -3]: ResultSrc=alu RegWrite=yes
+
+ASM=sw x7, 4(x5)
+FETCH: PC=0x00000020 INSTR=0x0072A223
+DECODE [sw x7, 4(x5)]: ImmSrc=S
+EXEC [addi x7, x6, 6]: SrcA=rs1 ALUSrc=imm ALUControl=add
+MEM [addi x6, x0, -5]:
+WB [sw x7, 0(x5)]: ResultSrc=alu
+HAZARD [addi x7, x6, 6]: StallF=run StallD=run FlushD=keep FlushE=keep FwdA=M FwdB=M
+
+ASM=addi x6, x0, 2047
+FETCH: PC=0x00000024 INSTR=0x7FF00313
+DECODE [addi x6, x0, 2047]: ImmSrc=I
+EXEC [sw x7, 4(x5)]: SrcA=rs1 ALUSrc=imm ALUControl=add
+MEM [addi x7, x6, 6]:
+WB [addi x6, x0, -5]: ResultSrc=alu RegWrite=yes
+HAZARD [sw x7, 4(x5)]: StallF=run StallD=run FlushD=keep FlushE=keep FwdA=rf FwdB=M
+
+ASM=addi x7, x6, 1
+FETCH: PC=0x00000028 INSTR=0x00130393
+DECODE [addi x7, x6, 1]: ImmSrc=I
+EXEC [addi x6, x0, 2047]: SrcA=rs1 ALUSrc=imm ALUControl=add
+MEM [sw x7, 4(x5)]: MemWrite=yes MemSize=word
+WB [addi x7, x6, 6]: ResultSrc=alu RegWrite=yes
+
+ASM=sw x7, 8(x5)
+FETCH: PC=0x0000002C INSTR=0x0072A423
+DECODE [sw x7, 8(x5)]: ImmSrc=S
+EXEC [addi x7, x6, 1]: SrcA=rs1 ALUSrc=imm ALUControl=add
+MEM [addi x6, x0, 2047]:
+WB [sw x7, 4(x5)]: ResultSrc=alu
+HAZARD [addi x7, x6, 1]: StallF=run StallD=run FlushD=keep FlushE=keep FwdA=M FwdB=rf
+
+ASM=addi x6, x0, -2048
+FETCH: PC=0x00000030 INSTR=0x80000313
+DECODE [addi x6, x0, -2048]: ImmSrc=I
+EXEC [sw x7, 8(x5)]: SrcA=rs1 ALUSrc=imm ALUControl=add
+MEM [addi x7, x6, 1]:
+WB [addi x6, x0, 2047]: ResultSrc=alu RegWrite=yes
+HAZARD [sw x7, 8(x5)]: StallF=run StallD=run FlushD=keep FlushE=keep FwdA=rf FwdB=M
+
+ASM=addi x7, x6, -1
+FETCH: PC=0x00000034 INSTR=0xFFF30393
+DECODE [addi x7, x6, -1]: ImmSrc=I
+EXEC [addi x6, x0, -2048]: SrcA=rs1 ALUSrc=imm ALUControl=add
+MEM [sw x7, 8(x5)]: MemWrite=yes MemSize=word
+WB [addi x7, x6, 1]: ResultSrc=alu RegWrite=yes
+
+ASM=sw x7, 12(x5)
+FETCH: PC=0x00000038 INSTR=0x0072A623
+DECODE [sw x7, 12(x5)]: ImmSrc=S
+EXEC [addi x7, x6, -1]: SrcA=rs1 ALUSrc=imm ALUControl=add
+MEM [addi x6, x0, -2048]:
+WB [sw x7, 8(x5)]: ResultSrc=alu
+HAZARD [addi x7, x6, -1]: StallF=run StallD=run FlushD=keep FlushE=keep FwdA=M FwdB=rf
+
+ASM=addi x6, x0, 0
+FETCH: PC=0x0000003C INSTR=0x00000313
+DECODE [addi x6, x0, 0]: ImmSrc=I
+EXEC [sw x7, 12(x5)]: SrcA=rs1 ALUSrc=imm ALUControl=add
+MEM [addi x7, x6, -1]:
+WB [addi x6, x0, -2048]: ResultSrc=alu RegWrite=yes
+HAZARD [sw x7, 12(x5)]: StallF=run StallD=run FlushD=keep FlushE=keep FwdA=rf FwdB=M
+
+ASM=addi x7, x6, 0
+FETCH: PC=0x00000040 INSTR=0x00030393
+DECODE [addi x7, x6, 0]: ImmSrc=I
+EXEC [addi x6, x0, 0]: SrcA=rs1 ALUSrc=imm ALUControl=add
+MEM [sw x7, 12(x5)]: MemWrite=yes MemSize=word
+WB [addi x7, x6, -1]: ResultSrc=alu RegWrite=yes
+
+ASM=sw x7, 16(x5)
+FETCH: PC=0x00000044 INSTR=0x0072A823
+DECODE [sw x7, 16(x5)]: ImmSrc=S
+EXEC [addi x7, x6, 0]: SrcA=rs1 ALUSrc=imm ALUControl=add
+MEM [addi x6, x0, 0]:
+WB [sw x7, 12(x5)]: ResultSrc=alu
+HAZARD [addi x7, x6, 0]: StallF=run StallD=run FlushD=keep FlushE=keep FwdA=M FwdB=rf
+
+ASM=addi x7, x0, -123
+FETCH: PC=0x00000048 INSTR=0xF8500393
+DECODE [addi x7, x0, -123]: ImmSrc=I
+EXEC [sw x7, 16(x5)]: SrcA=rs1 ALUSrc=imm ALUControl=add
+MEM [addi x7, x6, 0]:
+WB [addi x6, x0, 0]: ResultSrc=alu RegWrite=yes
+HAZARD [sw x7, 16(x5)]: StallF=run StallD=run FlushD=keep FlushE=keep FwdA=rf FwdB=M
+
+ASM=sw x7, 20(x5)
+FETCH: PC=0x0000004C INSTR=0x0072AA23
+DECODE [sw x7, 20(x5)]: ImmSrc=S
+EXEC [addi x7, x0, -123]: SrcA=rs1 ALUSrc=imm ALUControl=add
+MEM [sw x7, 16(x5)]: MemWrite=yes MemSize=word
+WB [addi x7, x6, 0]: ResultSrc=alu RegWrite=yes
+
+ASM=beq x0, x0, 0
+FETCH: PC=0x00000050 INSTR=0x00000063
+DECODE [beq x0, x0, 0]: ImmSrc=B
+EXEC [sw x7, 20(x5)]: SrcA=rs1 ALUSrc=imm ALUControl=add
+MEM [addi x7, x0, -123]:
+WB [sw x7, 16(x5)]: ResultSrc=alu
+HAZARD [sw x7, 20(x5)]: StallF=run StallD=run FlushD=keep FlushE=keep FwdA=rf FwdB=M
+
+ASM=unknown
+FETCH: PC=0x00000054 INSTR=0x00000000
+DECODE [---]: ImmSrc=I BranchOp=eq
+EXEC [beq x0, x0, 0]: SrcA=rs1 ALUSrc=rs2 ALUControl=sub Zero=taken PCSrc=target
+MEM [sw x7, 20(x5)]: MemWrite=yes MemSize=word
+WB [addi x7, x0, -123]: ResultSrc=alu RegWrite=yes
+HAZARD [beq x0, x0, 0]: StallF=run StallD=run FlushD=flush FlushE=flush FwdA=rf FwdB=rf
+
+TRACE: TotalCycles=22
+/home/pmousoul/repos/MinRV32-SC/sim/tb_minrv32.vhd:713:9:@275ns:(report note): TEST PASSED
+simulation stopped @275ns with status 0

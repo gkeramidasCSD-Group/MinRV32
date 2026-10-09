@@ -1,0 +1,74 @@
+\section{ISA coverage and control signals}
+
+\subsection{Instruction groups}
+The core targets a practical RV32I subset intended to be ``GCC-friendly'' for
+freestanding bare-metal programs:
+\begin{itemize}[leftmargin=*]
+  \item Control flow: JAL, JALR, and all RV32I branches (BEQ/BNE/BLT/BGE/BLTU/BGEU).
+  \item Address materialization: LUI, AUIPC.
+  \item Loads: LB/LBU, LH/LHU, LW (with sign/zero extension).
+  \item Stores: SB/SH/SW (with correct byte-lane strobes and alignment).
+  \item Integer ALU: OP-IMM and OP arithmetic/logical instructions (ADD/SUB/AND/OR/XOR/SLT/SLTU/SLL/SRL/SRA and immediate forms).
+\end{itemize}
+
+\subsection{Control signal glossary (selected)}
+The controller emits decode-stage signals that are registered into E/M/W.
+Common signals you will see in waveforms and RTL include:
+\begin{itemize}[leftmargin=*]
+  \item \texttt{ResultSrcW}: writeback mux select (ALU vs MEM vs PC+4).
+  \item \texttt{MemWriteM} / \texttt{MemReadM}: DMEM write/read enables.
+  \item \texttt{ImmSrcD}: immediate format (I/S/B/U/J).
+  \item \texttt{ALUControlE}, \texttt{SrcASelE}, \texttt{ALUSrcBE}: ALU operation and operand selection.
+  \item \texttt{BranchOpE}: branch comparator mode (eq/lt/ltu/etc.).
+  \item \texttt{JumpE} / \texttt{JalrE}: unconditional control-flow redirect (JAL/JALR).
+  \item \texttt{PCSrcE}: redirect decision (taken branch/jump) that selects the next PC.
+\end{itemize}
+
+\subsection{Control naming and stage suffixes}
+Control is generated in Decode and registered through E/M/W (for example
+\texttt{ImmSrcD}, \texttt{ALUControlE}, \texttt{MemWriteM}, \texttt{ResultSrcW}).
+This mirrors the textbook convention while making timing explicit in the RTL.
+
+\subsection{Compact control matrix (from \texttt{docs/instruction\_control.md})}
+
+\paragraph{Execute + writeback}
+\begin{center}
+\small
+\begin{tabular}{@{}l l l l l l l@{}}
+\toprule
+Group & ImmSrcD & SrcASelE & ALUSrcBE & ALUControlE & RegWriteW & ResultSrcW \\
+\midrule
+LUI    & IMM\_U & OPA\_ZERO & imm & ALU\_ADD & yes & WB\_ALU \\
+AUIPC  & IMM\_U & OPA\_PC   & imm & ALU\_ADD & yes & WB\_ALU \\
+JAL    & IMM\_J & OPA\_PC   & imm & ALU\_ADD & yes & WB\_PC4 \\
+JALR   & IMM\_I & OPA\_RS1  & imm & ALU\_ADD & yes & WB\_PC4 \\
+Branch & IMM\_B & OPA\_RS1  & rs2 & ALU\_SUB & no  & WB\_ALU \\
+Load   & IMM\_I & OPA\_RS1  & imm & ALU\_ADD & yes & WB\_MEM \\
+Store  & IMM\_S & OPA\_RS1  & imm & ALU\_ADD & no  & WB\_ALU \\
+OP-IMM & IMM\_I & OPA\_RS1  & imm & funct   & yes & WB\_ALU \\
+OP     & IMM\_I & OPA\_RS1  & rs2 & funct   & yes & WB\_ALU \\
+\bottomrule
+\end{tabular}
+\end{center}
+\normalsize
+
+\paragraph{Memory + PC control}
+\begin{center}
+\small
+\begin{tabular}{@{}l c c l l l c c@{}}
+\toprule
+Group & MemReadM & MemWriteM & MemSizeM & MemUnsignedM & BranchOpE & JumpE & JalrE \\
+\midrule
+LUI    & 0 & 0 & --   & --    & BR\_NONE & 0 & 0 \\
+AUIPC  & 0 & 0 & --   & --    & BR\_NONE & 0 & 0 \\
+JAL    & 0 & 0 & --   & --    & BR\_NONE & 1 & 0 \\
+JALR   & 0 & 0 & --   & --    & BR\_NONE & 1 & 1 \\
+Branch & 0 & 0 & --   & --    & funct    & 0 & 0 \\
+Load   & 1 & 0 & size & funct & BR\_NONE & 0 & 0 \\
+Store  & 0 & 1 & size & 0     & BR\_NONE & 0 & 0 \\
+OP-IMM & 0 & 0 & --   & --    & BR\_NONE & 0 & 0 \\
+OP     & 0 & 0 & --   & --    & BR\_NONE & 0 & 0 \\
+\bottomrule
+\end{tabular}
+\end{center}
+\normalsize
